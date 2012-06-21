@@ -10,8 +10,14 @@ __license__ = "GNU GPL 3.0 or later"
 import urllib, httplib2, base64
 import argparse
 import signal
-from PIL import Image, ImageMath
+from PIL import Image, ImageFilter
 import StringIO
+import time
+from boto.s3.bucket import Bucket
+from boto.s3.key import Key
+import boto.sns
+import threading
+import datetime
 
 if __name__ == '__main__':
     
@@ -23,6 +29,9 @@ if __name__ == '__main__':
     parser.add_argument('-i', '--interval', action='store', dest='interval', type=int, default=5, required=False, help='Frame capture interval')
     parser.add_argument('-x', '--width', action='store', dest='width', type=int, default=320, required=False, help='Frame width')
     parser.add_argument('-y', '--height', action='store', dest='height', type=int, default=240, required=False, help='Frame height')
+    parser.add_argument('-b', '--bucket', action='store', dest='bucket', default=None, required=False, help='S3 bucket to upload images to')
+    parser.add_argument('-r', '--region', action='store', dest='region', default=None, required=False, help='SNS region to connect to')
+    parser.add_argument('-t', '--topic', action='store', dest='topic', default=None, required=False, help='SNS topic to publish notifications to')
     
     args  = parser.parse_args()
 
@@ -48,9 +57,30 @@ if __name__ == '__main__':
             return Image.open(StringIO.StringIO(content))
         else:
             return None
+
+    class ImageUploader(threading.Thread):
+        def __init__(self, image=None):
+            threading.Thread.__init__(self)
+            self.image = image.tostring('jpeg', 'RGB')
+
+        def run(self):
+            connection = boto.connect_s3()
+            bucket = Bucket(connection, 'videowatcher')
+            key = Key(bucket)
+            key.key = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S') + '.jpg'
+            key.set_contents_from_string(self.image, headers={'Content-Type': 'image/jpeg'})
+            
+            url = key.generate_url(31536000)
+            print url
+            sns = boto.sns.connect_to_region(args.region)
+            sns.publish(args.topic, url)
+            
+    reference = fetch().convert('L')
     
-    def handler():
-        image = fetch()
+    def handler(signum, frame):
+        in_image = fetch()
+        image = in_image.convert('L')
+        image = image.filter(ImageFilter.GaussianBlur(radius=5))
         
         image_data = image.load()
         reference_data = reference.load()
@@ -58,15 +88,16 @@ if __name__ == '__main__':
         diff = 0
         for y in range(args.height):
             for x in range(args.width):
-                reference_pixel = reference_data[x, y]
-                image_pixel = image_data[x, y]
-                diff += abs(reference_pixel[0]-image_pixel[0]) + abs(reference_pixel[1]-image_pixel[1]) + abs(reference_pixel[2]-image_pixel[2])
-        
+                diff += 1 if abs(reference_data[x, y]-image_data[x, y]) > 5 else 0
         reference.paste(image)
-        
-        print diff
+
+        if diff > 1000:
+            print diff
+            imageuploader = ImageUploader(image=in_image)
+            imageuploader.start()
     
-    reference = fetch()
-    
-    for i in range(1000):
-        handler()
+    signal.signal(signal.SIGALRM, handler)
+    signal.setitimer(signal.ITIMER_REAL, 2, 2)
+
+    while True:
+        time.sleep(0.01)
