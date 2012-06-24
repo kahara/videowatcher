@@ -79,11 +79,11 @@ if __name__ == '__main__':
                 key.set_contents_from_string(self.image, headers={'Content-Type': 'image/jpeg'})
                 print 'uploaded:', key.key
             
-            if self.region and self.topic:
-                url = key.generate_url(31536000)
-                sns = boto.sns.connect_to_region(self.region)
-                sns.publish(self.topic, url)
-                print 'published:', self.topic, url
+                if self.region and self.topic:
+                    url = key.generate_url(31536000)
+                    sns = boto.sns.connect_to_region(self.region)
+                    sns.publish(self.topic, url)
+                    print 'published:', self.topic, url
                 
     references = []
     
