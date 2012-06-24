@@ -71,14 +71,15 @@ if __name__ == '__main__':
             self.topic = topic
 
         def run(self):
-            connection = boto.connect_s3()
-            bucket = Bucket(connection, self.bucket)
-            key = Key(bucket)
-            key.key = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S') + '.jpg'
-            key.set_contents_from_string(self.image, headers={'Content-Type': 'image/jpeg'})
-            print 'uploaded:', key.key
+            if self.bucket:
+                connection = boto.connect_s3()
+                bucket = Bucket(connection, self.bucket)
+                key = Key(bucket)
+                key.key = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S') + '.jpg'
+                key.set_contents_from_string(self.image, headers={'Content-Type': 'image/jpeg'})
+                print 'uploaded:', key.key
             
-            if self.region and self.bucket:
+            if self.region and self.topic:
                 url = key.generate_url(31536000)
                 sns = boto.sns.connect_to_region(self.region)
                 sns.publish(self.topic, url)
